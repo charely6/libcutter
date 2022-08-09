@@ -106,3 +106,14 @@ chmod +x ./util/draw_gcode # or whichever file you want to run
 2. Open Settings > Security & Privacy > General
 3. Under `Allow apps downloaded from`, you should see the name of the executable you just ran with a button `Allow anyway`. Click that button.
 4. Run the program again. It should now work!
+
+
+
+Windows and MacOSX DLL wrapper for libcutter to add as a plugin for Sure Cuts A Lot 4 using the SCAL4 Custom Plugin spec
+http://www.craftedge.com/tutorials/cut_plugin/cut_plugin.php
+
+Pre-built libraries are in Windows/Build and Mac/Build folders.
+Both library and XML files are required.
+
+To build for Windows, there is a Visual Studio project in the Windows folder.
+To build for Mac, there is a XCode project in the Mac folder.
