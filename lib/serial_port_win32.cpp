@@ -16,20 +16,18 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Should you need to contact us, the author, you can do so either at
- * http://github.com/vangdfang/libcutter, or by paper mail:
- *
- * libcutter Developers @ Cowtown Computer Congress
- * 3101 Mercier Street #404, Kansas City, MO 64111
+ * Should you need to contact us, the author, you can do so at
+ * http://github.com/vangdfang/libcutter
  */
 #include "serial_port.hpp"
 #include <cstdio>
 #include <sys/types.h>
 #include <cstdlib>
-//#include <sys/time.h>
-//#include <unistd.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <cmath>
 #include <string>
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 using std::size_t;
@@ -39,6 +37,7 @@ using namespace std;
 
 serial_port::serial_port()
 {
+    debug = 0;
     fd = INVALID_HANDLE_VALUE;
 }
 
@@ -54,14 +53,12 @@ bool serial_port::is_open()
     return fd != INVALID_HANDLE_VALUE;
 }
 
-
-serial_port::serial_port( const string & filename )
+void serial_port::set_debug(int level)
 {
-    p_open( filename );
+    debug = level;
 }
 
-
-void serial_port::p_open( const string & filename )
+void serial_port::p_open( const string & filename, int baud_rate )
 {
     DCB newdcb = { 0 };
     COMMTIMEOUTS newtimeouts = { 0 };
@@ -74,7 +71,7 @@ void serial_port::p_open( const string & filename )
             // Could not save comm state
         }
         newdcb.DCBlength = sizeof( newdcb );
-        newdcb.BaudRate = 200000;
+        newdcb.BaudRate = baud_rate;
         newdcb.ByteSize = 8;
         newdcb.StopBits = ONESTOPBIT;
         newdcb.Parity = NOPARITY;
@@ -143,7 +140,7 @@ size_t serial_port::p_read( uint8_t * data, size_t size )
 
     if( fd == INVALID_HANDLE_VALUE )
     {
-        cout<<"Error reading from closed port"<<endl;
+        std::cerr << "Error reading from closed port" << std::endl;
     }
 
     if( !ReadFile( fd, data, size, &bytesRead, NULL ) )
@@ -154,14 +151,14 @@ size_t serial_port::p_read( uint8_t * data, size_t size )
     return bytesRead;
 }
 
-/*
-const uint64_t serial_port::getTime( void )
+
+uint64_t serial_port::getTime( void )
 {
     timeval tv;
     gettimeofday( &tv, NULL );
     return (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec ;
 }
-*/
+
 
 int serial_port::delay( int usecs )
 {

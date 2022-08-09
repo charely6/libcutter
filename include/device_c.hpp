@@ -16,17 +16,15 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Should you need to contact us, the author, you can do so either at
- * http://github.com/vangdfang/libcutter, or by paper mail:
- *
- * libcutter Developers @ Cowtown Computer Congress
- * 3101 Mercier Street #404, Kansas City, MO 64111
+ * Should you need to contact us, the author, you can do so at
+ * http://github.com/vangdfang/libcutter
  */
 #ifndef DEVICE_C_HPP
 #define DEVICE_C_HPP
 
-#include <stdint.h>
+#include <cstdint>
 #include <cstring>
+#include <vector>
 #include "device.hpp"
 #include "types.h"
 #include "serial_port.hpp"
@@ -62,7 +60,31 @@ namespace Device
             {
                 return m_serial.is_open();
             }
+            enum model_id
+            {
+                UNKNOWN,
+                PERSONAL,
+                MINI,/*unsupported but detectable*/
+                EXPRESSION
+            };
+            int get_version_major();
+            int get_version_minor();
+            std::string device_make();
+            std::string device_model();
+            std::string device_version();
+            inline void set_serial_debug( int level )
+            {
+                m_serial.set_debug( level );
+            }
+
+            /*usually handled as part of init()*/
+            /*but here for debugging purposes*/
+            bool enumerate();
+
         private:
+            /*This is in question and needs remeasured*/
+            /*See https://github.com/vangdfang/libcutter/issues/20 */
+            static const int baud_rate = 200000;
             inline int get_rand() const
             {
                 /*No, we're not bad at math. This is cryptographic padding
@@ -73,10 +95,15 @@ namespace Device
             };
             xy convert_to_internal( const xy &input );
             bool do_command( const xy &pt, const ckey_type k );
+            bool do_command_32( uint32_t );
+            std::vector<uint8_t> read_response();
             ckey_type m_move_key;
             ckey_type m_line_key;
             ckey_type m_curve_key;
             serial_port m_serial;
+            model_id m_model_id;
+            int m_version_major;
+            int m_version_minor;
     };
 }
 #endif

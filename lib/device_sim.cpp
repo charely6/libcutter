@@ -16,19 +16,18 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Should you need to contact us, the author, you can do so either at
- * http://github.com/vangdfang/libcutter, or by paper mail:
- *
- * libcutter Developers @ Cowtown Computer Congress
- * 3101 Mercier Street #404, Kansas City, MO 64111
+ * Should you need to contact us, the author, you can do so at
+ * http://github.com/vangdfang/libcutter
  */
 #include <stdint.h>
 #include <unistd.h>
+#include <iostream>
+#include <sstream>
 #include "device_sim.hpp"
 #include "types.h"
 
-#include <SDL/SDL.h>
-#include <SDL/SDL_gfxPrimitives.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL2_gfxPrimitives.h>
 
 #define DPI_X 100
 #define DPI_Y 100
@@ -39,6 +38,8 @@
 #define WIDTH  ( ( DPI_X ) * ( DEFAULT_SIZE_X ) )
 #define HEIGHT ( ( DPI_Y ) * ( DEFAULT_SIZE_Y ) )
 
+#define FORMAT SDL_PIXELFORMAT_ARGB8888
+
 #define DEPTH 32
 
 namespace Device
@@ -47,7 +48,8 @@ namespace Device
     CV_sim::CV_sim()
     {
         running            = false;
-        image              = NULL;
+        screen             = NULL;
+        renderer           = NULL;
         current_position.x = 0;
         current_position.y = 0;
         tool_width         = 1;
@@ -57,7 +59,8 @@ namespace Device
     {
         output_filename    = filename;
         running            = false;
-        image              = NULL;
+        screen             = NULL;
+        renderer           = NULL;
         current_position.x = 0;
         current_position.y = 0;
         tool_width         = 1;
@@ -89,10 +92,10 @@ namespace Device
 
         next_position = convert_to_internal( aPoint );
 
-        if( image != NULL )
+        if( renderer != NULL )
         {
-            lineRGBA( image, current_position.x, current_position.y, next_position.x, next_position.y, 250, 50, 50, 200 );
-            SDL_Flip( image );
+            lineRGBA( renderer, current_position.x, current_position.y, next_position.x, next_position.y, 250, 50, 50, 200 );
+            SDL_RenderPresent( renderer );
             usleep( 100000 * distance );
         }
 
@@ -151,9 +154,26 @@ namespace Device
 
     bool CV_sim::start()
     {
-        if( image == NULL )
+        if( renderer == NULL )
         {
-            image = SDL_SetVideoMode(WIDTH, HEIGHT, DEPTH, SDL_HWSURFACE);
+            SDL_Init( SDL_INIT_VIDEO );
+            std::stringstream titleBuilder;
+            titleBuilder << "Simulated(";
+            titleBuilder << DEFAULT_SIZE_X;
+            titleBuilder << "x";
+            titleBuilder << DEFAULT_SIZE_Y;
+            titleBuilder << " mat)";
+            screen = SDL_CreateWindow( titleBuilder.str().c_str(), SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIDTH, HEIGHT, 0 );
+            if( screen == NULL ) {
+                std::cerr << "Unable to create SDL2 window!" << std::endl;
+                return false;
+            }
+            renderer = SDL_CreateRenderer( screen, -1, SDL_RENDERER_TARGETTEXTURE | SDL_RENDERER_SOFTWARE );
+            if( renderer == NULL ) {
+                std::cerr << "Unable to create SDL2 renderer!" << std::endl;
+                SDL_Quit();
+                return false;
+            }
         }
         running = true;
         return true;
@@ -163,11 +183,13 @@ namespace Device
     {
         int retn;
 
-        if( image != NULL && output_filename.size() > 4 )
+        if( renderer != NULL && output_filename.size() > 4 )
         {
+            SDL_Surface * image = SDL_CreateRGBSurfaceWithFormat( 0, WIDTH, HEIGHT, DEPTH, SDL_PIXELFORMAT_ARGB8888 );
+            SDL_RenderReadPixels( renderer, NULL, SDL_PIXELFORMAT_ARGB8888, image->pixels, image->pitch );
             retn = SDL_SaveBMP( image, output_filename.c_str() );
-            SDL_Flip( image );
             SDL_FreeSurface( image );
+            SDL_Quit();
         }
         running = false;
         return retn == 0;
@@ -217,11 +239,24 @@ namespace Device
 
     SDL_Surface * CV_sim::get_image()
     {
-        SDL_Surface * new_image = SDL_ConvertSurface( image, image->format, 0);
+        // Create a Surface from the current window
+        SDL_Surface * new_image = SDL_CreateRGBSurfaceWithFormat( 0, WIDTH, HEIGHT, DEPTH, 0 );
+        SDL_RenderReadPixels( renderer, NULL, FORMAT, new_image->pixels, new_image->pitch );
 
-        ellipseRGBA( new_image, current_position.x, current_position.y, 10, 10, 50, 250, 50, 200 );
-        aalineRGBA( new_image, current_position.x + 5, current_position.y + 5, current_position.x - 5, current_position.y - 5, 250, 50, 50, 200 );
-        aalineRGBA( new_image, current_position.x + 5, current_position.y - 5, current_position.x - 5, current_position.y + 5, 250, 50, 50, 200 );
+        // Copy the Surface into a Texture for drawing on it
+        SDL_Texture * texture = SDL_CreateTextureFromSurface( renderer, new_image );
+        
+        // Draw a crosshair
+        SDL_SetRenderTarget( renderer, texture );
+        ellipseRGBA( renderer, current_position.x, current_position.y, 10, 10, 50, 250, 50, 200 );
+        aalineRGBA( renderer, current_position.x + 5, current_position.y + 5, current_position.x - 5, current_position.y - 5, 250, 50, 50, 200 );
+        aalineRGBA( renderer, current_position.x + 5, current_position.y - 5, current_position.x - 5, current_position.y + 5, 250, 50, 50, 200 );
+
+        // Copy the Texture back to the Surface with the added crosshair
+        SDL_Rect rect = { 0, 0, WIDTH, HEIGHT };
+        SDL_RenderReadPixels( renderer, &rect, FORMAT, new_image->pixels, new_image->pitch );
+        SDL_SetRenderTarget( renderer, NULL );
+        SDL_DestroyTexture( texture );
 
         return new_image;
     }

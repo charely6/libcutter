@@ -16,22 +16,36 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Should you need to contact us, the author, you can do so either at
- * http://github.com/vangdfang/libcutter, or by paper mail:
- *
- * libcutter Developers @ Cowtown Computer Congress
- * 3101 Mercier Street #404, Kansas City, MO 64111
+ * Should you need to contact us, the author, you can do so at
+ * http://github.com/vangdfang/libcutter
  */
 #ifndef TYPES_H
 #define TYPES_H
 
 #include <stdint.h>
 
-typedef struct
+struct xy
 {
     double x;
     double y;
-} xy;
+	xy(){};
+	xy(double _x, double _y){x=_x;y=_y;};
+	~xy(){};
 
-typedef uint32_t ckey_type[4];
+    //These comparison operators have no idea of floating point tolerance
+    //Nor that of the underlying machines, so they should only be used
+    //for exact comparisons.
+    bool operator==(const xy & that)
+    {
+        return x == that.x && y == that.y;
+    }
+    bool operator!=(const xy & that)
+    {
+        return x != that.x || y != that.y;
+    }
+
+};
+
+typedef uint32_t individual_key_t;
+typedef individual_key_t ckey_type[4];
 #endif

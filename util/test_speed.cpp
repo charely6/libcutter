@@ -3,9 +3,10 @@
 #include <iostream>
 #include <signal.h>
 #include <stdlib.h>
+#include <math.h>
 using namespace std;
 
-#include "keys.h"
+#include "ConfigParser.hpp"
 
 void clean_up(int signal)
 {
@@ -20,26 +21,51 @@ uint64_t getCurTime( void )
     return (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec ;
 }
 
+double sqr( double x )
+{
+return x*x;
+}
+
+double dist( const xy & startpt, const xy & endpt )
+{
+return sqrt( sqr(endpt.x - startpt.x) + sqr(endpt.y - startpt.y) );
+}
 
 int main(int argc, char *argv[])
 {
-    xy startpt = { 1.5, 2 };
-    xy endpt   = { 4.5, 8 };
-    uint64_t     timer;
+    const xy endpt(0.5, 2);
+    const xy startpt(5.5, 8);
+    uint64_t timer;
 
     signal(SIGINT, clean_up);
 
     if( argc != 2 )
     {
-        cout << "usage: " << argv[0] << " device" << endl;
-        return 1;
+        cout<<"Usage: "<<argv[0]<<" <device file>"<<endl;
+        cout << endl;
+        cout << "\t<device file> - serial port file of the cutter. Looks like:" << endl;
+        cout << "\t\t/dev/ttyUSBx" << endl;
+        cout << "\t\t/dev/cu.usbserial-10" << endl;
+        cout << "\t\t/dev/serial/port" << endl;
+        exit(1);
     }
-    Device::C cutter(argv[1]);
 
-    ckey_type move_key={MOVE_KEY_0, MOVE_KEY_1, MOVE_KEY_2, MOVE_KEY_3};
+    ConfigParser Config;
+
+    Device::C cutter;
+    cutter.set_serial_debug(Config.serialDebug());
+    cutter.init(argv[1]);
+
+    cout <<"Device Found:" << cutter.device_name() << std::endl;
+    cout <<"Mat Size:" << cutter.get_dimensions().x << "x" << cutter.get_dimensions().y << std::endl;
+
+
+    auto moveKeys = Config.moveKeys();
+    auto lineKeys = Config.lineKeys();
+    ckey_type move_key = { moveKeys.key0, moveKeys.key1, moveKeys.key2, moveKeys.key3 };
+    ckey_type line_key = { lineKeys.key0, lineKeys.key1, lineKeys.key2, lineKeys.key3 };
+
     cutter.set_move_key(move_key);
-
-    ckey_type line_key={LINE_KEY_0, LINE_KEY_1, LINE_KEY_2, LINE_KEY_3 };
     cutter.set_line_key(line_key);
 
     cutter.stop();
@@ -50,11 +76,15 @@ int main(int argc, char *argv[])
     #define NUM_RUNS 5
     for( int i = 0; i < NUM_RUNS; ++i )
     {
+        cutter.cut_to( endpt );
         cutter.cut_to( startpt );
-        cutter.cut_to( endpt   );
     }
-    cutter.cut_to( endpt   );
-    cout << "Took " << ( getCurTime() - timer ) / 1000000.0 / ( NUM_RUNS * 2 + 1 ) << "per path. Multiply by two to get full travel time" << endl;
+    cutter.move_to( endpt );
+    timer = getCurTime() - timer;
+    double seconds = timer / 1000000.0;
+    cout << "Took: " << seconds << " seconds" << endl;
+    cout << "Took: " << seconds / ( NUM_RUNS * 2 ) << " seconds per path" << endl;
+    cout << "Speed:" << dist( startpt, endpt ) * NUM_RUNS * 2 / seconds << " inches per second" << endl;
 
     cutter.stop();
 

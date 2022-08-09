@@ -1,6 +1,7 @@
 //This file adapted from http://sites.google.com/site/drbobbobswebsite/cricut-gcode-interpreter
 #include <errno.h>
 #include <cmath>
+#include <map>
 #include <vector>
 #include <iostream>
 #include <fstream>
@@ -14,15 +15,6 @@
 using namespace std;
 using namespace gcode_base;
 
-static const char *debug_strings[] = {
-     "critical",
-     "error",
-     "warning",
-     "information",
-     "debug",
-     "extra_debug"
-};
-
 static enum debug_prio _debug;
 
 void gcode_base::debug_out(enum debug_prio debug_level, const string msg)
@@ -33,13 +25,21 @@ void gcode_base::debug_out(enum debug_prio debug_level, const string msg)
 
 void gcode_base::set_debug(enum debug_prio d)
 {
-     char buf[256];
-     
-     _debug = d;
-     snprintf(buf, sizeof(buf),
-	      "Debugging level set to %s\n",
-	      debug_strings[_debug]);
-     debug_out(info, string(buf));     
+     static const char * const debug_strings[] = {
+          "critical",
+          "error",
+          "warning",
+          "information",
+          "debug",
+          "extra_debug"
+     };
+
+     if( d > extra_debug ) {
+          _debug = extra_debug;
+          debug_out(info, string("Debugging level set to maximum\n"));
+     } else {
+          debug_out(info, string("Debugging level set to ")+debug_strings[_debug=d]+"\n");
+     }
 }
 
 line::line(const xy &s, const xy &e, const bool c):
@@ -79,7 +79,7 @@ xy line::draw(Device::Generic &cutter)
      debug_out(debug, string(buf));
      return end;
 }
-     
+
 bezier::bezier(const xy &s, const xy &c1, const xy &c2, const xy &e):
      start(s),
      cp1(c1),
@@ -115,9 +115,7 @@ xy bezier::draw(Device::Generic &cutter)
 
 double arc::angle_between(const xy &vec1, const xy &vec2)
 {
-     double angle = atan2(vec2.y, vec2.x) - atan2(vec1.y, vec1.x);
-
-     return angle;
+     return atan2(vec2.y, vec2.x) - atan2(vec1.y, vec1.x);
 }
 double arc::get_arcwidth(const xy & vec1, const xy & vec2)
 {
@@ -125,7 +123,7 @@ double arc::get_arcwidth(const xy & vec1, const xy & vec2)
 //	    vec2.x, vec2.y);
      double a1 = atan2(vec2.y, vec2.x) - atan2(vec1.y, vec1.x);
 //     printf("Arcwidth: %f", a1/M_PI);
-     
+
      if (clockwise)
      {
 //	  printf(" (clockwise) ");
@@ -239,7 +237,7 @@ xy arc::draw(Device::Generic &cutter)
 void arc::segment(double swidth, double rot)
 {
      char buf[4096];
-     snprintf(buf, 4095,
+     snprintf(buf, sizeof(buf),
 	      "Arc segment: center (%f, %f), arc width: %f, radius %f, rotation: %f",
 	      center.x, center.y, swidth/M_PI, radius, rot/M_PI);
      debug_out(debug, string(buf));
@@ -392,122 +390,38 @@ double gcode::doc_to_internal(double val)
      return val;
 }
 
-char gcode::get_command(const string & input, size_t *rem)
+xy gcode::get_xy(std::map<char,float> & codes)
 {
-     int offset = 0;
-     char command;
-
-     while(isspace(input[offset]))
-	  offset++;
-     command = input[offset];
-     *rem = offset + 1;
-
-     return command;
+	xy retn = curr_pos;
+	if( codes.find('X') != codes.end() ) {
+		retn.x = doc_to_internal(codes['X']);
+	}
+	if( codes.find('Y') != codes.end() ) {
+		retn.y = doc_to_internal(codes['Y']);
+	}
+	return retn;
 }
 
-int gcode::get_code(const string & input, size_t *rem)
+xy gcode::get_vector(std::map<char,float> & codes)
 {
-     char *end;
-     const char *tmp;
-     int retval;
-
-     tmp = input.c_str();
-     retval = strtol(tmp, &end, 10);
-     *rem = (end - tmp) + 1;
-     return retval;
+	return (xy){ doc_to_internal(codes['I']), doc_to_internal(codes['J']) };
 }
 
-double gcode::get_value(const string & input, size_t *rem)
+void gcode::process_movement(std::map<char,float> & codes)
 {
-     char *end;
-     const char *tmp;
-     double retval;
+	// rapid movement to target point
+	process_z_code(codes);
+	xy target = get_xy(codes);
+	line *l = new line(curr_pos, target, false);
+	curr_pos = l->draw(cutter);
+}
 
-     tmp = input.c_str();
-     retval = strtod(tmp, &end);
-     retval = doc_to_internal(retval);
-     *rem = (end - tmp) + 1;
-     return retval;
-}     
-	  
-xy gcode::get_xy(const string & input, size_t *rem)
+void gcode::process_z_code(std::map<char,float> & codes)
 {
-     size_t tmp;
-     size_t offset = 0;
-     char command;
-     xy target;
-     double x, y;
-
-     command = get_command(input, &tmp);
-     offset += tmp;
-     if(command != 'X' && command != 'I')
+     if ( codes.find('Z') != codes.end() )
      {
-	  string msg = "Expected first part, got: ";
-	  msg.append(input);
-	  throw msg;
-     }
-     x = get_value(input.substr(offset), &tmp);
-     offset += tmp;
-     command = get_command(input.substr(offset), &tmp);
-     offset += tmp;
-     if(command != 'Y' && command != 'J')
-     {
-	  string msg = "Expected second part, got: ";
-	  msg.append(input.substr(offset));
-	  throw msg;
-     }
-     y = get_value(input.substr(offset), &tmp);
-     offset += tmp;
-     *rem = offset;
-     target.x = x;
-     target.y = y;
-     return target;
-}
-
-xy gcode::get_vector(const string input, size_t *rem)
-{
-     char command;
-     size_t offset = 0;
-     size_t tmp;
-
-     command = get_command(input, &tmp);
-     offset += tmp;
-     if(command == 'I')
-     {
-	  xy t = get_xy(input, &tmp);
-	  offset += tmp;
-	  *rem = offset;
-	  return t;
-     }
-     string msg = "Expected vector, got: ";
-     msg.append(input);
-     throw msg;
-}
-
-xy gcode::get_target(const string input, size_t *rem)
-{
-     char command;
-
-     command = get_command(input, rem);
-     if(command == 'X')
-	  return get_xy(input, rem);
-     string msg = "Expected xy, got: ";
-     msg.append(input);
-     throw msg;
-}
-
-void gcode::process_movement(string input)
-{
-     // rapid movement to target point
-     //
-     size_t rem = 0;
-     char command;
-     char buf[4096];
-     
-     command = get_command(input, &rem);
-     if(command == 'Z')
-     {
-	  double z = get_value(input.substr(rem), &rem);
+      char buf[4096];
+	  double z = doc_to_internal(codes['Z']);
 	  snprintf(buf, 4095, "Pen %s", (z >= 0) ? "up":"down");
 	  debug_out(debug, string(buf));
 	  if(z >= 0)
@@ -515,160 +429,75 @@ void gcode::process_movement(string input)
 	  else
 	       lower_pen();
      }
-     else if(command == 'X')
-     {
-	  xy target;
-
-	  target = get_target(input, &rem);
-	  line *l = new line(curr_pos, target, false);
-	  curr_pos = l->draw(cutter);
-     }
-     else
-     {
-	  string msg = "Unknown G0 command: ";
-	  msg.append(input);
-	  throw msg;
-     }
-     parse_line(input.substr(rem));
 }
 
-void gcode::process_line(string input)
+void gcode::process_line(std::map<char,float> & codes)
 {
      // cut from curr_pos to target_point
 
-     size_t offset = 0;
-     size_t rem;
-     char command;
-     char buf[4096];
-
-     command = get_command(input, &rem);
-     offset += rem;
-     if(command == 'Z')
-     {
-	  double z = get_value(input.substr(rem), &rem);
-	  offset += rem;
-	  snprintf(buf, 4095, "Pen %s", (z >= 0) ? "up":"down");
-	  debug_out(debug, string(buf));
-	  if(z >= 0)
-	       raise_pen();
-	  else
-	       lower_pen();
-     }
-     else if(command == 'X')
-     {
-	  xy target;
-
-	  target = get_target(input, &rem);
-	  offset += rem;
-	  line *l = new line(curr_pos, target, true);
-	  curr_pos = l->draw(cutter);
-     }
-     else
-     {
-	  string msg = "Unknown G1 command: ";
-	  msg.append(input);
-	  throw msg;
-     }
-     parse_line(input.substr(offset));
+     process_z_code(codes);
+     xy target = get_xy(codes);
+     line *l = new line(curr_pos, target, true);
+     curr_pos = l->draw(cutter);
 }
 
-void gcode::process_clockwise_arc(string input)
+void gcode::process_clockwise_arc(std::map<char,float> & codes)
 {
      // cut in a clockwise circular arc from curr_pos to target around
      // a center point defined by the vector (i, j) from the current
      // position
 
-     size_t offset = 0;
-     size_t rem;
-     char command;
-     
-     command = get_command(input, &rem);
-     offset += rem;
-     if(command == 'Z')
-     {
-	  string msg = "Unexpected Z command: ";
-	  msg.append(input);
-	  throw msg;
-     }
-     else if(command == 'X')
-     {
-	  xy target, cvec;
-	  
-	  debug_out(debug, "Processing clockwise arc");
-	  target = get_target(input, &rem);
-	  offset += rem;
-	  cvec = get_vector(input.substr(rem), &rem);
-	  offset += rem;
+     process_z_code(codes);
+     xy target = get_xy(codes);
+     xy cvec = get_vector(codes);
 
-	  arc *a = new arc(curr_pos, target, cvec, true);
-	  curr_pos = a->draw(cutter);
-     }
-     parse_line(input.substr(offset));
-	  
+     debug_out(debug, "Processing clockwise arc");
+
+     arc *a = new arc(curr_pos, target, cvec, true);
+     curr_pos = a->draw(cutter);
 }
 
-void gcode::process_anticlockwise_arc(string input)
+void gcode::process_anticlockwise_arc(std::map<char,float> & codes)
 {
     // cut in an anticlockwise circular arc from curr_pos to target
     // around a center point defined by the vector (i, j) from the
     // current position
 
-    size_t offset = 0;
-    size_t rem;
-    char command;
-
-    command = get_command(input, &rem);
-    offset += rem;
-    if(command == 'Z')
-    {
-	 string msg = "Unexpected Z command: ";
-	 msg.append(input);
-	 throw msg;
-    }
-    else if(command == 'X')
-    {
-	 xy target, cvec;
+    process_z_code(codes);
 
 	 debug_out(debug, "Processing anticlockwise arc");
-	 target = get_target(input, &rem);
-	 offset += rem;
-	 cvec = get_vector(input.substr(rem), &rem);
-	 offset += rem;
+	 xy target = get_xy(codes);
+	 xy cvec = get_vector(codes);
 	 arc *a = new arc(curr_pos, target, cvec, false);
 	 curr_pos = a->draw(cutter);
-
-     }
-     parse_line(input.substr(offset));
 }
 
-void gcode::process_g_code(string input)
+void gcode::process_g_code(std::map<char,float> & codes)
 {
      string val;
-     size_t rem = 0;
 
-     int code = get_code(input, &rem);
      char buf[4096];
-     snprintf(buf, 4095, "Processing G code: %d", code);
+     int code = (int)(codes['G']+.5);
+     snprintf(buf, sizeof(buf), "Processing G code: %d", code);
      debug_out(debug, string(buf));
      switch(code)
      {
      case 0:
 	  // rapid movement to target point
-	  //
-	  process_movement(input.substr(rem));
+	  process_movement(codes);
 	  break;
      case 1:
 	  // cut a line from curr_pos to target point
-	  process_line(input.substr(rem));
+	  process_line(codes);
 	  break;
      case 2:
 	  // clockwise circular arc from curr_pos to target, around
 	  // the center point specified by the vector (i, j)
-	  process_clockwise_arc(input.substr(rem));
+	  process_clockwise_arc(codes);
 	  break;
      case 3:
 	  // anticlockwise circular arc, as per case 2
-	  process_anticlockwise_arc(input.substr(rem));
+	  process_anticlockwise_arc(codes);
 	  break;
      case 20:
 	  // input values are in inches
@@ -691,53 +520,24 @@ void gcode::process_g_code(string input)
 	  debug_out(info, "Relative coordinates requested but not supported");
 	  break;
      default:
-	  string msg = "Unhandled G command: ";
-	  msg.append(input);
-	  debug_out(debug, msg);
+	  snprintf(buf, sizeof(buf), "Unhandled G command: %d", code);
+	  debug_out(debug, string(buf));
 	  break;
      }
-     parse_line(input.substr(rem));
 }
 
-void gcode::process_line_number(string input)
+void gcode::process_line_number(std::map<char,float> & codes)
 {
-     int offset = 1;
-
      debug_out(debug, "Skipping line number");
-     // skip any white space between the N and the rest of the line
-     while(isspace(input[offset]))
-	  offset++;
-     // skip the digits following
-     while(isdigit(input[offset]))
-	  offset++;
-     // and skip the subsequent white space . . .
-     while(isspace(input[offset]))
-	  offset++;
-
-     parse_line(input.substr(offset));
 }
 
-void gcode::process_parens(string input)
+void gcode::process_misc_code(std::map<char,float> & codes)
 {
-     int offset = 1;
-
-     debug_out(debug, "Skipping parentheses");
-     // skip anything not a corresponding ')'
-     while(input[offset] != ')')
-	  offset++;
-     offset++;
-
-     parse_line(input.substr(offset));
-}
-
-void gcode::process_misc_code(string input)
-{
-     size_t rem = 0;
-
-     int code = get_code(input, &rem);
+     int code = (int)(codes['M']+0.5);
      char buf[4096];
-     snprintf(buf, 4095, "Processing M code: %d", code);
+     snprintf(buf, sizeof(buf), "Processing M code: %d", code);
      debug_out(debug, string(buf));
+
      switch(code)
      {
      case 0:
@@ -748,55 +548,71 @@ void gcode::process_misc_code(string input)
 	  throw false;
 	  break;
      default:
-	  string msg = "Unhandled M command ";
-	  msg.append(input);
-	  debug_out(debug, msg);
+	  snprintf(buf, sizeof(buf), "Unhandled M command %d", code);
+	  debug_out(debug, string(buf));
 	  break;
      }
-     
-     parse_line(input.substr(rem));
+
+}
+
+std::map<char,float> gcode::parse_gcode( std::string line )
+{
+std::map<char,float> results;
+size_t i;
+unsigned paren_count = 0;
+for( i = 0; i < line.length(); ++i )
+    {
+    if( paren_count > 0 )
+        {
+        if( line[i] == ')')
+            paren_count--;
+        continue;
+        }
+    else if( line[i] == '(' )
+        {
+        paren_count++;
+        continue;
+        }
+    else if( line[i] == ';' )
+        {
+        break;
+        }
+    else if( isalpha(line[i]))
+        {
+        char key;
+        float value;
+        int len;
+        if( 2 == sscanf( line.c_str()+i, "%c%f%n", &key, &value, &len ) )
+            {
+            results[key]=value;
+            i = i + len - 1;
+            continue;
+            }
+        }
+    else if( isspace(line[i]) )
+        {
+        continue;
+        }
+    std::cerr<<"Did not understand:"<<line<<std::endl;
+    }
+return results;
 }
 
 void gcode::parse_line(string input)
 {
-     size_t rem = 0;
-     char buf[4096];
-     snprintf(buf, 4095, "Processing line: %s", input.c_str());
-     debug_out(extra_debug, string(buf));
-     if(input[0] == '\n')
-	  throw true;
+     debug_out(extra_debug, string("Processing line: ")+input);
+     std::map<char,float> codes = parse_gcode( input );
 
-     char command = get_command(input, &rem);
-     switch(command)
-     {
-     case 'N':
-	  process_line_number(input.substr(rem));
-	  break;
-
-     case 'G':
-	  process_g_code(input.substr(rem));
-	  break;
-
-     case 'M':
-	  process_misc_code(input.substr(rem));
-	  break;
-
-     case '(':
-	  process_parens(input.substr(rem));
-	  break;
-
-     case ';':
-	  break;
-
-     case '\n':
-     case '\0':
-	  break;
-
-     default:
+     if ( codes.find('G') != codes.end() ) {
+          process_g_code(codes);
+     } else if ( codes.find('N') != codes.end() ) {
+          process_line_number(codes);
+     } else if ( codes.find('M') != codes.end() ) {
+          process_misc_code(codes);
+     } else {
 	  string msg = "Unhandled command ";
 	  msg.append(input);
 	  debug_out(debug, msg);
-	  break;
      }
 }
 
@@ -804,7 +620,6 @@ void gcode::parse_file(void)
 {
      ifstream infile(filename.c_str());
      string line;
-     char buf[4096];
 
      while(infile)
      {
@@ -815,7 +630,8 @@ void gcode::parse_file(void)
 	  }
 	  catch(string msg)
 	  {
-	       snprintf(buf, 4095, "%s", msg.c_str());
+               char buf[4096];
+	       snprintf(buf, sizeof(buf), "%s", msg.c_str());
 	       debug_out(err, string(buf));
 	  }
 	  catch(const std::out_of_range& oor)
@@ -835,4 +651,3 @@ void gcode::parse_file(void)
      debug_out(info, "Parse complete");
      return;
 }
-	  

@@ -16,11 +16,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
- * Should you need to contact us, the author, you can do so either at
- * http://github.com/vangdfang/libcutter, or by paper mail:
- *
- * libcutter Developers @ Cowtown Computer Congress
- * 3101 Mercier Street #404, Kansas City, MO 64111
+ * Should you need to contact us, the author, you can do so at
+ * http://github.com/vangdfang/libcutter
  */
 #ifndef DEVICE_HPP
 #define DEVICE_HPP
@@ -39,7 +36,10 @@ namespace Device
             Generic( std::string aSerial );
             virtual ~Generic();
             virtual inline void init( std::string aSerial ) {};
-            virtual inline const std::string device_name() { return "Virtual Device"; };
+            virtual inline std::string device_make() { return "libcutter"; };
+            virtual inline std::string device_model() { return "Virtual Device"; };
+            virtual inline std::string device_version() { return "0.0"; };
+            virtual inline std::string device_name() { return device_make() + " " + device_model() + " " + device_version(); };
             virtual bool move_to(const xy &aPoint) = 0;
             virtual bool cut_to(const xy &aPoint) = 0;
             virtual bool curve_to(const xy &p0, const xy &p1, const xy &p2, const xy &p3) = 0;

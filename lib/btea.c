@@ -23,7 +23,7 @@ int btea( uint32_t * v, int32_t n, const uint32_t * k_in )
     uint32_t sum;
     uint32_t e;
     uint32_t k[4];
-    int status;
+    int status = 2;
     unsigned int word_count;
 
     if( n >= 0 )
@@ -40,7 +40,7 @@ int btea( uint32_t * v, int32_t n, const uint32_t * k_in )
     //( sqrt( 5 ) - 1 ) / 2
     const uint32_t DELTA=0x9e3779b9 ;
 
-    int32_t p;
+    unsigned int p;
     int32_t q;
 
     //Preinit check
